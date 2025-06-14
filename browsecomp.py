@@ -313,13 +313,11 @@ class ExternalProcessSampler(SamplerBase):
         executable_path: str,
         system_message: str | None = None,
         model_name: str | None = None,
-        timeout: int = 60,
         cli_format: str | None = None,
     ):
         self.executable_path = executable_path
         self.system_message = system_message
         self.model_name = model_name
-        self.timeout = timeout
         self.cli_format = cli_format  # CLI command format, e.g. "agent-tars run"
 
     def __call__(self, message_list: MessageList) -> SamplerResponse:
@@ -376,7 +374,7 @@ class ExternalProcessSampler(SamplerBase):
                     stderr=subprocess.PIPE
                 )
             
-            stdout, stderr = process.communicate(timeout=self.timeout)
+            stdout, stderr = process.communicate()
             
             # Use stdout directly as response text
             response_text = stdout.decode('utf-8')
@@ -388,14 +386,6 @@ class ExternalProcessSampler(SamplerBase):
             return SamplerResponse(
                 response_text=response_text,
                 response_metadata={},
-                actual_queried_message_list=full_messages,
-            )
-            
-        except subprocess.TimeoutExpired:
-            process.kill()
-            return SamplerResponse(
-                response_text="Error: Process timeout",
-                response_metadata={"error": "timeout"},
                 actual_queried_message_list=full_messages,
             )
             
