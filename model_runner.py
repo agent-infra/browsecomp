@@ -1,9 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import argparse
 import json
 import sys
 import os
-from typing import Dict, Any
 import openai
 from openai import OpenAI
 
@@ -11,7 +11,7 @@ def setup_openai_client():
     """Setup and return OpenAI client."""
     return OpenAI()
 
-def generate_response(prompt: str, model_name: str = "gpt-3.5-turbo") -> str:
+def generate_response(prompt, model_name="gpt-3.5-turbo"):
     """Generate response using OpenAI API."""
     client = setup_openai_client()
     try:
@@ -26,7 +26,7 @@ def generate_response(prompt: str, model_name: str = "gpt-3.5-turbo") -> str:
             return ""
         return content
     except Exception as e:
-        return f"Error generating response: {str(e)}"
+        return "Error generating response: {}".format(str(e))
 
 def main():
     # Setup argument parser

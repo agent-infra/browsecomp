@@ -20,6 +20,40 @@ You also need to set your OpenAI API key:
 export OPENAI_API_KEY=your_openai_api_key_here
 ```
 
+## Virtual Environment Setup
+
+```bash
+# For Windows
+# Create a virtual environment
+python -m venv venv
+# Activate the virtual environment
+venv\Scripts\activate
+# Install dependencies
+pip install -r requirements.txt
+# When you're done, deactivate the environment
+deactivate
+
+# For macOS/Linux
+# Create a virtual environment
+python -m venv venv
+# Activate the virtual environment
+source venv/bin/activate
+# Install dependencies
+pip install -r requirements.txt
+# When you're done, deactivate the environment
+deactivate
+
+# Using Conda (cross-platform)
+# Create a conda environment
+conda create -n browsecomp python=3.10
+# Activate the conda environment
+conda activate browsecomp
+# Install dependencies
+pip install -r requirements.txt
+# When you're done, deactivate the environment
+conda deactivate
+```
+
 ## Running the Evaluation
 
 ### Using the Default OpenAI Model Runner

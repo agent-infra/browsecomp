@@ -330,8 +330,12 @@ class ExternalProcessSampler(SamplerBase):
         prompt = "\n\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in full_messages])
         
         try:
+            import sys
+            python_executable = sys.executable
+            print(f"Using python executable: {python_executable}")
+
             # Run external process directly with command line arguments
-            cmd = [self.executable_path, "--input", prompt]
+            cmd = [python_executable, self.executable_path, "--input", prompt]
             if self.model_name:
                 cmd.extend(["--model", self.model_name])
                 
