@@ -1,3 +1,4 @@
+from collections import defaultdict
 import base64
 import hashlib
 import json
@@ -23,6 +24,7 @@ import shlex
 Message = dict[str, Any]  # keys role, content
 MessageList = list[Message]
 
+
 @dataclass
 class SamplerResponse:
     """Response from a sampler."""
@@ -30,13 +32,16 @@ class SamplerResponse:
     actual_queried_message_list: MessageList
     response_metadata: dict[str, Any]
 
+
 class SamplerBase:
     """Base class for defining a sampling model."""
+
     def __call__(self, message_list: MessageList) -> SamplerResponse:
         raise NotImplementedError
-    
+
     def _pack_message(self, role: str, content: Any):
         return {"role": str(role), "content": content}
+
 
 @dataclass
 class SingleEvalResult:
@@ -47,6 +52,7 @@ class SingleEvalResult:
     convo: MessageList | None = None
     example_level_metadata: dict[str, Any] | None = None
 
+
 @dataclass
 class EvalResult:
     """Result of running an evaluation (usually consisting of many samples)"""
@@ -56,12 +62,16 @@ class EvalResult:
     convos: list[MessageList]
     metadata: dict[str, Any] | None
 
+
 class Eval:
     """Base class for defining an evaluation."""
+
     def __call__(self, sampler: SamplerBase) -> EvalResult:
         raise NotImplementedError
 
 # Helper functions from common.py
+
+
 def _compute_stat(values: list, stat: str):
     if stat == "mean":
         return np.mean(values)
@@ -75,10 +85,12 @@ def _compute_stat(values: list, stat: str):
         return len(values)
     elif stat == "bootstrap_std":
         return np.std(
-            [np.mean(np.random.choice(values, len(values))) for _ in range(1000)]
+            [np.mean(np.random.choice(values, len(values)))
+             for _ in range(1000)]
         )
     else:
-        raise ValueError(f"Unknown {stat =}")
+        raise ValueError(f"Unknown {stat=}")
+
 
 def aggregate_results(
     single_eval_results: list[SingleEvalResult],
@@ -113,6 +125,7 @@ def aggregate_results(
         metadata={"example_level_metadata": metadata},
     )
 
+
 def map_with_progress(
     f: callable,
     xs: list[Any],
@@ -133,6 +146,7 @@ def map_with_progress(
                 results.append(future.result())
             return results
 
+
 # Jinja setup for HTML rendering
 jinja_env = jinja2.Environment(
     loader=jinja2.BaseLoader(),
@@ -152,6 +166,7 @@ _message_template = """
 </div>
 """
 
+
 def message_to_html(message: Message) -> str:
     """Generate HTML snippet (inside a <div>) for a message."""
     return jinja_env.from_string(_message_template).render(
@@ -159,6 +174,7 @@ def message_to_html(message: Message) -> str:
         content=message["content"],
         variant=message.get("variant", None),
     )
+
 
 jinja_env.globals["message_to_html"] = message_to_html
 
@@ -240,6 +256,7 @@ _report_template = """<!DOCTYPE html>
 </html>
 """
 
+
 def make_report(eval_result: EvalResult) -> str:
     """Create a standalone HTML report from an EvalResult."""
     return jinja_env.from_string(_report_template).render(
@@ -249,6 +266,8 @@ def make_report(eval_result: EvalResult) -> str:
     )
 
 # ChatCompletionSampler implementation for grader model
+
+
 class ChatCompletionSampler(SamplerBase):
     """Sample from OpenAI's chat completion API"""
 
@@ -282,7 +301,8 @@ class ChatCompletionSampler(SamplerBase):
                 )
                 content = response.choices[0].message.content
                 if content is None:
-                    raise ValueError("OpenAI API returned empty response; retrying")
+                    raise ValueError(
+                        "OpenAI API returned empty response; retrying")
                 return SamplerResponse(
                     response_text=content,
                     response_metadata={"usage": response.usage},
@@ -305,6 +325,8 @@ class ChatCompletionSampler(SamplerBase):
                 trial += 1
 
 # New ExternalProcessSampler implementation
+
+
 class ExternalProcessSampler(SamplerBase):
     """Sample from an external executable process."""
 
@@ -327,14 +349,15 @@ class ExternalProcessSampler(SamplerBase):
             full_messages = [
                 self._pack_message("system", self.system_message)
             ] + message_list
-        
+
         # Combine messages into a single prompt for simplicity
-        prompt = "\n\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in full_messages])
-        
+        prompt = "\n\n".join(
+            [f"{msg['role'].upper()}: {msg['content']}" for msg in full_messages])
+
         try:
             # Properly escape the prompt to handle quotes
             escaped_prompt = prompt.replace('"', '\\"')
-            
+
             # Decide command line construction based on CLI format
             if self.cli_format:
                 # Use CLI command format
@@ -345,11 +368,11 @@ class ExternalProcessSampler(SamplerBase):
                 # Add input parameter with proper quoting
                 cmd_parts.append("--input")
                 cmd_parts.append(f'"{escaped_prompt}"')
-                
+
                 # For shell execution, join with spaces
                 cmd = " ".join(cmd_parts)
                 print(f"Running CLI command: {cmd}")
-                
+
                 # Use shell=True to properly handle the quoted input
                 process = subprocess.Popen(
                     cmd,
@@ -364,31 +387,32 @@ class ExternalProcessSampler(SamplerBase):
                 print(f"Using python executable: {python_executable}")
 
                 # Use list format for arguments (subprocess handles escaping)
-                cmd = [python_executable, self.executable_path, "--input", prompt]
+                cmd = [python_executable,
+                       self.executable_path, "--input", prompt]
                 if self.model_name:
                     cmd.extend(["--model", self.model_name])
-                
+
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE
                 )
-            
+
             stdout, stderr = process.communicate()
-            
+
             # Use stdout directly as response text
             response_text = stdout.decode('utf-8')
-            
+
             if process.returncode != 0:
                 print(f"Error from external process: {stderr.decode()}")
                 response_text = f"Error: Process returned code {process.returncode}"
-            
+
             return SamplerResponse(
                 response_text=response_text,
                 response_metadata={},
                 actual_queried_message_list=full_messages,
             )
-            
+
         except Exception as e:
             print(f"Error running external process: {e}")
             return SamplerResponse(
@@ -397,8 +421,8 @@ class ExternalProcessSampler(SamplerBase):
                 actual_queried_message_list=full_messages,
             )
 
+
 # Import required for defaultdict
-from collections import defaultdict
 
 # BrowseComp evaluation implementation
 QUERY_TEMPLATE = """
@@ -433,6 +457,7 @@ confidence: The extracted confidence score between 0% and 100% from [response]. 
 
 CHOICE_STRINGS = ["yes", "no"]
 
+
 def derive_key(password: str, length: int) -> bytes:
     """Derive a fixed-length key from the password using SHA256."""
     hasher = hashlib.sha256()
@@ -440,12 +465,14 @@ def derive_key(password: str, length: int) -> bytes:
     key = hasher.digest()
     return key * (length // len(key)) + key[: length % len(key)]
 
+
 def decrypt(ciphertext_b64: str, password: str) -> str:
     """Decrypt base64-encoded ciphertext with XOR."""
     encrypted = base64.b64decode(ciphertext_b64)
     key = derive_key(password, len(encrypted))
     decrypted = bytes(a ^ b for a, b in zip(encrypted, key))
     return decrypted.decode()
+
 
 class BrowseCompEval(Eval):
     def __init__(self, grader_model: SamplerBase, num_examples: int | None = None, n_repeats: int = 1):
@@ -474,14 +501,16 @@ class BrowseCompEval(Eval):
         grading_response = sampler_response.response_text
 
         match = re.search(r"correct: (yes|no)", grading_response)
-        return match.group(1).lower() if match else "no"  # Default to "no" if no match
+        # Default to "no" if no match
+        return match.group(1).lower() if match else "no"
 
     def __call__(self, sampler: SamplerBase) -> EvalResult:
         def fn(row: dict):
             problem = decrypt(row.get("problem", ""), row.get("canary", ""))
             answer = decrypt(row.get("answer", ""), row.get("canary", ""))
             prompt_messages = [
-                sampler._pack_message(content=QUERY_TEMPLATE.format(Question=problem), role="user")
+                sampler._pack_message(content=QUERY_TEMPLATE.format(
+                    Question=problem), role="user")
             ]
             sampler_response = sampler(prompt_messages)
             response_text = sampler_response.response_text
@@ -491,7 +520,7 @@ class BrowseCompEval(Eval):
             # Metrics based on grading response
             is_correct = grade_result == "yes"
             is_incorrect = grade_result == "no"
-            
+
             score = is_correct
 
             # Create HTML for each sample result
@@ -502,7 +531,8 @@ class BrowseCompEval(Eval):
                 correct_answer=answer,
                 extracted_answer=response_text,
             )
-            convo = actual_queried_prompt_messages + [dict(content=response_text, role="assistant")]
+            convo = actual_queried_prompt_messages + \
+                [dict(content=response_text, role="assistant")]
             return SingleEvalResult(html=html, score=score, convo=convo, metrics={
                 "is_correct": is_correct,
                 "is_incorrect": is_incorrect,
@@ -516,26 +546,28 @@ class BrowseCompEval(Eval):
             "is_correct": sum(result.metrics["is_correct"] for result in results) / len(results),
             "is_incorrect": sum(result.metrics["is_incorrect"] for result in results) / len(results),
         }
-        print("AGGREGATE METRICS") 
-        print(aggregate_metrics) 
+        print("AGGREGATE METRICS")
+        print(aggregate_metrics)
         print("##################")
 
         output_d = {
             "accuracy": aggregate_metrics["is_correct"],
         }
-        
+
         print(f"Accuracy: {output_d['accuracy']:.3f}")
-        
+
         return aggregate_results(results)
 
 # Example usage
+
+
 def run_browsecomp_eval(runner_path="model_runner.py", model_name=None, num_examples=10, cli_format=None):
     # Set up the model to evaluate - can be external process or OpenAI API
     if cli_format:
         # 1. CLI Command Mode (highest priority)
         print(f"Using CLI command format: {cli_format}")
         model = ExternalProcessSampler(
-            executable_path=None,  
+            executable_path=None,
             model_name=model_name,
             cli_format=cli_format
         )
@@ -544,15 +576,16 @@ def run_browsecomp_eval(runner_path="model_runner.py", model_name=None, num_exam
         # Make sure the model runner has execute permissions
         if runner_path.endswith('.py'):
             os.chmod(runner_path, 0o755)
-        
+
         # Check if script requires model_name parameter
         with open(runner_path, "r") as f:
             script_content = f.read()
             requires_model = "--model" in script_content and "required=True" in script_content
-        
+
         if requires_model and not model_name:
-            raise ValueError(f"model_name must be specified for this runner: {runner_path}")
-        
+            raise ValueError(
+                f"model_name must be specified for this runner: {runner_path}")
+
         print(f"Using external runner: {runner_path}")
         model = ExternalProcessSampler(
             executable_path=runner_path,
@@ -561,30 +594,26 @@ def run_browsecomp_eval(runner_path="model_runner.py", model_name=None, num_exam
     else:
         # 3. OpenAI API Mode (fallback)
         if not model_name:
-            raise ValueError("model_name must be specified when using OpenAI API")
-        
+            raise ValueError(
+                "model_name must be specified when using OpenAI API")
+
         print(f"Using OpenAI API with model: {model_name}")
         model = ChatCompletionSampler(model=model_name)
-    
+
     # Set up grader model
     grader_model = ChatCompletionSampler(model="gpt-4")
-    
 
     # Initialize evaluation
     eval = BrowseCompEval(grader_model=grader_model, num_examples=num_examples)
-    
 
     # Run evaluation
     result = eval(model)
-    
 
     # Generate report
     report = make_report(result)
-    
 
     # Create report filename
     if cli_format:
-
 
         # Extract model ID from CLI format
         model_id = model_name
@@ -592,34 +621,37 @@ def run_browsecomp_eval(runner_path="model_runner.py", model_name=None, num_exam
 
         model_id = model_name
     report_filename = f"browsecomp_{model_id}_{num_examples}_examples.html"
-    
 
     # Save report
     with open(report_filename, "w") as f:
         f.write(report)
-    
+
     print(f"Evaluation complete! Report saved to {report_filename}")
     return result
+
 
 if __name__ == "__main__":
     # Example usage: python browsecomp.py
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Run BrowseComp evaluation")
-    parser.add_argument("--python-script", type=str, default="model_runner.py", 
+    parser.add_argument("--python-script", type=str, default="model_runner.py",
                         help="Path to Python script that generates model responses")
-    parser.add_argument("--command", type=str, help="Shell command that generates model responses (e.g., 'agent-tars run')")
-    parser.add_argument("--model-name", type=str, help="Model name to pass to runner")
-    parser.add_argument("--examples", type=int, default=10, help="Number of examples to evaluate")
+    parser.add_argument("--command", type=str,
+                        help="Shell command that generates model responses (e.g., 'agent-tars run')")
+    parser.add_argument("--model-name", type=str,
+                        help="Model name to pass to runner")
+    parser.add_argument("--examples", type=int, default=10,
+                        help="Number of examples to evaluate")
     args = parser.parse_args()
-    
+
     # Check for mutually exclusive parameters
     if args.command and args.python_script != "model_runner.py":
         print("Warning: Both --command and --python-script specified. Using --command.")
-    
+
     run_browsecomp_eval(
-        runner_path=args.python_script, 
-        model_name=args.model_name, 
+        runner_path=args.python_script,
+        model_name=args.model_name,
         num_examples=args.examples,
         cli_format=args.command
     )

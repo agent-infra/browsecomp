@@ -1,12 +1,24 @@
 # BrowseComp Evaluation
 
+> [!IMPORTANT]
 > This repository is forked and modified from OpenAI's [simple evals github repository](https://github.com/openai/simple-evals) and used to complete evaluation for projects such as Agent TARS.
 
-This repository contains the implementation of BrowseComp benchmark for evaluating language models. BrowseComp is a simple yet challenging benchmark for browsing agents, developed by Jason Wei, Zhiqing Sun, Spencer Papay, and others.
+This repository contains the implementation of BrowseComp benchmark for evaluating various AI systems, including language models, Python-based agents, and executable agents in binary format.
 
 ## About BrowseComp
 
 [BrowseComp](https://openai.com/index/browsecomp/) is designed to evaluate the browsing capabilities of language models. It tests the model's ability to understand web content, answer questions accurately, and provide confidence scores for its answers.
+
+## Execution Mode
+
+By default, this benchmark evaluates examples in **parallel** using multiple threads. This significantly speeds up evaluation when dealing with many examples, especially for API-based models.
+
+- **Default**: Parallel execution with thread count equal to your system's CPU core count
+- **Debug Mode**: To switch to sequential (serial) execution for debugging purposes:
+  ```bash
+  # Run in sequential mode for debugging
+  debug=True python browsecomp.py [other arguments]
+  ```
 
 ## Setup Requirements
 

@@ -7,9 +7,11 @@ import os
 import openai
 from openai import OpenAI
 
+
 def setup_openai_client():
     """Setup and return OpenAI client."""
     return OpenAI()
+
 
 def generate_response(prompt, model_name):
     """Generate response using OpenAI API."""
@@ -28,21 +30,26 @@ def generate_response(prompt, model_name):
     except Exception as e:
         return "Error generating response: {}".format(str(e))
 
+
 def main():
     # Setup argument parser
-    parser = argparse.ArgumentParser(description="Model runner for BrowseComp evaluation")
-    parser.add_argument("--input", type=str, help="Query string to process", required=True)
-    parser.add_argument("--output", type=str, help="Output response file path (optional, defaults to stdout)")
-    parser.add_argument("--model", type=str, help="Model name to use (default: gpt-4)", default="gpt-4")
+    parser = argparse.ArgumentParser(
+        description="Model runner for BrowseComp evaluation")
+    parser.add_argument("--input", type=str,
+                        help="Query string to process", required=True)
+    parser.add_argument(
+        "--output", type=str, help="Output response file path (optional, defaults to stdout)")
+    parser.add_argument(
+        "--model", type=str, help="Model name to use (default: gpt-4)", default="gpt-4")
     args = parser.parse_args()
-    
+
     # Use direct query string from input argument
     prompt = args.input
     model = args.model
-    
+
     # Generate response
     result = generate_response(prompt, model)
-    
+
     # Output result - either to file or stdout
     if args.output:
         with open(args.output, 'w', encoding='utf-8') as f:
@@ -50,6 +57,7 @@ def main():
     else:
         sys.stdout.write(result)
         sys.stdout.flush()
+
 
 if __name__ == "__main__":
     main()
