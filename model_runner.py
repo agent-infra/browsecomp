@@ -11,7 +11,7 @@ def setup_openai_client():
     """Setup and return OpenAI client."""
     return OpenAI()
 
-def generate_response(prompt, model_name="gpt-3.5-turbo"):
+def generate_response(prompt, model_name):
     """Generate response using OpenAI API."""
     client = setup_openai_client()
     try:
@@ -33,7 +33,7 @@ def main():
     parser = argparse.ArgumentParser(description="Model runner for BrowseComp evaluation")
     parser.add_argument("--input", type=str, help="Query string to process", required=True)
     parser.add_argument("--output", type=str, help="Output response file path (optional, defaults to stdout)")
-    parser.add_argument("--model", type=str, default="gpt-3.5-turbo", help="Model name to use")
+    parser.add_argument("--model", type=str, help="Model name to use (default: gpt-4)", default="gpt-4")
     args = parser.parse_args()
     
     # Use direct query string from input argument

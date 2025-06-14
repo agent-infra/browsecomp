@@ -59,45 +59,59 @@ conda deactivate
 ### Using the Default OpenAI Model Runner
 
 ```bash
-# Evaluate the default OpenAI model (gpt-3.5-turbo)
-python browsecomp.py --examples 5
-
-# Evaluate a specific OpenAI model
-python browsecomp.py --model-name gpt-4 --examples 5
-
 # Evaluate a specific OpenAI model
 python browsecomp.py --model-name gpt-4 --examples 5
 ```
 
-### Using a Custom Runner
-
-You can evaluate any custom implementation by creating an executable that follows the input/output protocol:
+### Using a Custom Python Script Runner
 
 ```bash
-# Using a custom implementation
-python browsecomp.py --runner-path /path/to/your/runner/executable --examples 5
+# Using a custom Python script implementation
+python browsecomp.py --python-script /path/to/your/script.py --model-name gpt-4-turbo --examples 5
+```
+
+### Using a CLI Command
+
+```bash
+# Using a custom CLI command
+python browsecomp.py --command "your-cli-tool run" --model-name your-model-id --examples 5
 ```
 
 ### Command Line Arguments
 
-- `--runner-path`: Path to evaluation runner executable (default: model_runner.py)
-- `--model-name`: Model name to pass to the runner
+- `--python-script`: Path to Python script runner (default: model_runner.py)
+- `--command`: CLI command format string (e.g., "agent-tars run")
+- `--model-name`: Model name to pass to the runner (optional, required for certain configurations)
 - `--examples`: Number of examples to evaluate (default: 10)
+
+**Note:** The `--python-script` and `--command` are mutually exclusive execution modes:
+- `--python-script`: Executes a Python script with your Python interpreter
+- `--command`: Executes a shell command directly, useful for compiled programs or complex CLI tools
 
 The evaluation will generate an HTML report with the results in the current directory.
 
 ## Creating a Custom Runner
 
-To create a custom runner, you need to create an executable (script or binary) that:
+To create a custom runner, you need to create either:
 
-1. Accepts a JSON input with a "prompt" field
-2. Returns a JSON output with a "response" field
+1. A Python script that:
+   - Accepts an `--input` argument with the prompt text
+   - Outputs the model's response to stdout
+   
+2. Or a CLI command that:
+   - Accepts `--input "prompt"` and optionally `--model "model_name"` parameters
+   - Outputs the model's response to stdout
 
-The model_runner.py script provided serves as a reference implementation. Your custom implementation must:
+### Python Script Example
 
-1. Accept input either from a file specified with `--input` or from stdin
-2. Output results either to a file specified with `--output` or to stdout
-3. Follow the JSON format for input/output
+See `model_runner.py` for a reference implementation of a Python script runner.
+
+### CLI Command Example
+
+Your CLI tool should accept arguments in this format:
+```bash
+your-cli-tool run --model "model-name" --input "prompt text here"
+```
 
 ## Understanding Results
 

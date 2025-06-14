@@ -17,6 +17,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import openai
 from openai import OpenAI
+import shlex
 
 # Types definitions (from types.py)
 Message = dict[str, Any]  # keys role, content
@@ -253,7 +254,8 @@ class ChatCompletionSampler(SamplerBase):
 
     def __init__(
         self,
-        model: str = "gpt-3.5-turbo",
+
+        model: str,
         system_message: str | None = "You are a helpful assistant.",
         temperature: float = 0.5,
         max_tokens: int = 1024,
@@ -312,11 +314,13 @@ class ExternalProcessSampler(SamplerBase):
         system_message: str | None = None,
         model_name: str | None = None,
         timeout: int = 60,
+        cli_format: str | None = None,
     ):
         self.executable_path = executable_path
         self.system_message = system_message
         self.model_name = model_name
         self.timeout = timeout
+        self.cli_format = cli_format  # CLI command format, e.g. "agent-tars run"
 
     def __call__(self, message_list: MessageList) -> SamplerResponse:
         # Prepare input data
@@ -330,20 +334,47 @@ class ExternalProcessSampler(SamplerBase):
         prompt = "\n\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in full_messages])
         
         try:
-            import sys
-            python_executable = sys.executable
-            print(f"Using python executable: {python_executable}")
-
-            # Run external process directly with command line arguments
-            cmd = [python_executable, self.executable_path, "--input", prompt]
-            if self.model_name:
-                cmd.extend(["--model", self.model_name])
+            # Properly escape the prompt to handle quotes
+            escaped_prompt = prompt.replace('"', '\\"')
+            
+            # Decide command line construction based on CLI format
+            if self.cli_format:
+                # Use CLI command format
+                cmd_parts = shlex.split(self.cli_format)
+                # Add model parameter (if provided)
+                if self.model_name:
+                    cmd_parts.extend(["--model", self.model_name])
+                # Add input parameter with proper quoting
+                cmd_parts.append("--input")
+                cmd_parts.append(f'"{escaped_prompt}"')
                 
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+                # For shell execution, join with spaces
+                cmd = " ".join(cmd_parts)
+                print(f"Running CLI command: {cmd}")
+                
+                # Use shell=True to properly handle the quoted input
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    shell=True
+                )
+            else:
+                # Original Python script execution method
+                import sys
+                python_executable = sys.executable
+                print(f"Using python executable: {python_executable}")
+
+                # Use list format for arguments (subprocess handles escaping)
+                cmd = [python_executable, self.executable_path, "--input", prompt]
+                if self.model_name:
+                    cmd.extend(["--model", self.model_name])
+                
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
             
             stdout, stderr = process.communicate(timeout=self.timeout)
             
@@ -508,40 +539,71 @@ class BrowseCompEval(Eval):
         return aggregate_results(results)
 
 # Example usage
-def run_browsecomp_eval(runner_path="model_runner.py", model_name=None, num_examples=10):
-    # Set up the model to evaluate - either external process or OpenAI API
-    if os.path.isfile(runner_path):
+def run_browsecomp_eval(runner_path="model_runner.py", model_name=None, num_examples=10, cli_format=None):
+    # Set up the model to evaluate - can be external process or OpenAI API
+    if cli_format:
+        # 1. CLI Command Mode (highest priority)
+        print(f"Using CLI command format: {cli_format}")
+        model = ExternalProcessSampler(
+            executable_path=None,  
+            model_name=model_name,
+            cli_format=cli_format
+        )
+    elif os.path.isfile(runner_path):
+        # 2. Python Script Mode
         # Make sure the model runner has execute permissions
         if runner_path.endswith('.py'):
             os.chmod(runner_path, 0o755)
         
-        # Use the external process sampler
+        # Check if script requires model_name parameter
+        with open(runner_path, "r") as f:
+            script_content = f.read()
+            requires_model = "--model" in script_content and "required=True" in script_content
+        
+        if requires_model and not model_name:
+            raise ValueError(f"model_name must be specified for this runner: {runner_path}")
+        
         print(f"Using external runner: {runner_path}")
         model = ExternalProcessSampler(
             executable_path=runner_path,
             model_name=model_name
         )
     else:
-        # Fallback to OpenAI API
-        print(f"Using OpenAI API with model: {model_name or 'gpt-3.5-turbo'}")
-        model = ChatCompletionSampler(model=model_name or "gpt-3.5-turbo")
+        # 3. OpenAI API Mode (fallback)
+        if not model_name:
+            raise ValueError("model_name must be specified when using OpenAI API")
+        
+        print(f"Using OpenAI API with model: {model_name}")
+        model = ChatCompletionSampler(model=model_name)
     
-    # Set up the grader model
+    # Set up grader model
     grader_model = ChatCompletionSampler(model="gpt-4")
     
-    # Initialize the evaluation
+
+    # Initialize evaluation
     eval = BrowseCompEval(grader_model=grader_model, num_examples=num_examples)
     
-    # Run the evaluation
+
+    # Run evaluation
     result = eval(model)
     
+
     # Generate report
     report = make_report(result)
     
-    # Create a filename for the report
-    model_id = model_name or os.path.basename(runner_path).replace('.py', '')
+
+    # Create report filename
+    if cli_format:
+
+
+        # Extract model ID from CLI format
+        model_id = model_name
+    else:
+
+        model_id = model_name
     report_filename = f"browsecomp_{model_id}_{num_examples}_examples.html"
     
+
     # Save report
     with open(report_filename, "w") as f:
         f.write(report)
@@ -554,10 +616,20 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="Run BrowseComp evaluation")
-    parser.add_argument("--runner-path", type=str, default="model_runner.py", 
-                        help="Path to evaluation runner executable/script")
+    parser.add_argument("--python-script", type=str, default="model_runner.py", 
+                        help="Path to Python script that generates model responses")
+    parser.add_argument("--command", type=str, help="Shell command that generates model responses (e.g., 'agent-tars run')")
     parser.add_argument("--model-name", type=str, help="Model name to pass to runner")
     parser.add_argument("--examples", type=int, default=10, help="Number of examples to evaluate")
     args = parser.parse_args()
     
-    run_browsecomp_eval(runner_path=args.runner_path, model_name=args.model_name, num_examples=args.examples)
+    # Check for mutually exclusive parameters
+    if args.command and args.python_script != "model_runner.py":
+        print("Warning: Both --command and --python-script specified. Using --command.")
+    
+    run_browsecomp_eval(
+        runner_path=args.python_script, 
+        model_name=args.model_name, 
+        num_examples=args.examples,
+        cli_format=args.command
+    )
