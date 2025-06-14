@@ -1,9 +1,12 @@
 import base64
 import hashlib
+import json
 import random
 import re
 import pandas
 import os
+import subprocess
+import tempfile
 import time
 from typing import Any, Dict, List, Literal, Optional, Union
 from dataclasses import dataclass, field
@@ -299,6 +302,76 @@ class ChatCompletionSampler(SamplerBase):
                 time.sleep(exception_backoff)
                 trial += 1
 
+# New ExternalProcessSampler implementation
+class ExternalProcessSampler(SamplerBase):
+    """Sample from an external executable process."""
+
+    def __init__(
+        self,
+        executable_path: str,
+        system_message: str | None = None,
+        model_name: str | None = None,
+        timeout: int = 60,
+    ):
+        self.executable_path = executable_path
+        self.system_message = system_message
+        self.model_name = model_name
+        self.timeout = timeout
+
+    def __call__(self, message_list: MessageList) -> SamplerResponse:
+        # Prepare input data
+        full_messages = message_list
+        if self.system_message:
+            full_messages = [
+                self._pack_message("system", self.system_message)
+            ] + message_list
+        
+        # Combine messages into a single prompt for simplicity
+        prompt = "\n\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in full_messages])
+        
+        try:
+            # Run external process directly with command line arguments
+            cmd = [self.executable_path, "--input", prompt]
+            if self.model_name:
+                cmd.extend(["--model", self.model_name])
+                
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            stdout, stderr = process.communicate(timeout=self.timeout)
+            
+            # Use stdout directly as response text
+            response_text = stdout.decode('utf-8')
+            
+            if process.returncode != 0:
+                print(f"Error from external process: {stderr.decode()}")
+                response_text = f"Error: Process returned code {process.returncode}"
+            
+            return SamplerResponse(
+                response_text=response_text,
+                response_metadata={},
+                actual_queried_message_list=full_messages,
+            )
+            
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return SamplerResponse(
+                response_text="Error: Process timeout",
+                response_metadata={"error": "timeout"},
+                actual_queried_message_list=full_messages,
+            )
+            
+        except Exception as e:
+            print(f"Error running external process: {e}")
+            return SamplerResponse(
+                response_text=f"Error: {str(e)}",
+                response_metadata={"error": str(e)},
+                actual_queried_message_list=full_messages,
+            )
+
 # Import required for defaultdict
 from collections import defaultdict
 
@@ -329,7 +402,8 @@ reasoning: Explain why the extracted_final_answer is correct or incorrect based 
 
 correct: Answer 'yes' if extracted_final_answer matches the [correct_answer] given above, or is within a small margin of error for numerical problems. Answer 'no' otherwise, i.e. if there if there is any inconsistency, ambiguity, non-equivalency, or if the extracted answer is incorrect.
 
-confidence: The extracted confidence score between 0|\%| and 100|\%| from [response]. Put 100 if there is no confidence score available.
+
+confidence: The extracted confidence score between 0% and 100% from [response]. Put 100 if there is no confidence score available.
 """.strip()
 
 CHOICE_STRINGS = ["yes", "no"]
@@ -430,9 +504,23 @@ class BrowseCompEval(Eval):
         return aggregate_results(results)
 
 # Example usage
-def run_browsecomp_eval(model_name="gpt-3.5-turbo", num_examples=10):
-    # Set up the model to evaluate
-    model = ChatCompletionSampler(model=model_name)
+def run_browsecomp_eval(runner_path="model_runner.py", model_name=None, num_examples=10):
+    # Set up the model to evaluate - either external process or OpenAI API
+    if os.path.isfile(runner_path):
+        # Make sure the model runner has execute permissions
+        if runner_path.endswith('.py'):
+            os.chmod(runner_path, 0o755)
+        
+        # Use the external process sampler
+        print(f"Using external runner: {runner_path}")
+        model = ExternalProcessSampler(
+            executable_path=runner_path,
+            model_name=model_name
+        )
+    else:
+        # Fallback to OpenAI API
+        print(f"Using OpenAI API with model: {model_name or 'gpt-3.5-turbo'}")
+        model = ChatCompletionSampler(model=model_name or "gpt-3.5-turbo")
     
     # Set up the grader model
     grader_model = ChatCompletionSampler(model="gpt-4")
@@ -446,11 +534,15 @@ def run_browsecomp_eval(model_name="gpt-3.5-turbo", num_examples=10):
     # Generate report
     report = make_report(result)
     
+    # Create a filename for the report
+    model_id = model_name or os.path.basename(runner_path).replace('.py', '')
+    report_filename = f"browsecomp_{model_id}_{num_examples}_examples.html"
+    
     # Save report
-    with open(f"browsecomp_{model_name}_{num_examples}_examples.html", "w") as f:
+    with open(report_filename, "w") as f:
         f.write(report)
     
-    print(f"Evaluation complete! Report saved to browsecomp_{model_name}_{num_examples}_examples.html")
+    print(f"Evaluation complete! Report saved to {report_filename}")
     return result
 
 if __name__ == "__main__":
@@ -458,8 +550,10 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="Run BrowseComp evaluation")
-    parser.add_argument("--model", default="gpt-3.5-turbo", help="Model to evaluate")
+    parser.add_argument("--runner-path", type=str, default="model_runner.py", 
+                        help="Path to evaluation runner executable/script")
+    parser.add_argument("--model-name", type=str, help="Model name to pass to runner")
     parser.add_argument("--examples", type=int, default=10, help="Number of examples to evaluate")
     args = parser.parse_args()
     
-    run_browsecomp_eval(model_name=args.model, num_examples=args.examples)
+    run_browsecomp_eval(runner_path=args.runner_path, model_name=args.model_name, num_examples=args.examples)

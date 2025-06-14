@@ -22,22 +22,55 @@ export OPENAI_API_KEY=your_openai_api_key_here
 
 ## Running the Evaluation
 
+### Using the Default OpenAI Model Runner
+
 ```bash
-python browsecomp.py --model gpt-4 --examples 5
+# Evaluate the default OpenAI model (gpt-3.5-turbo)
+python browsecomp.py --examples 5
+
+# Evaluate a specific OpenAI model
+python browsecomp.py --model-name gpt-4 --examples 5
+
+# Evaluate a specific OpenAI model
+python browsecomp.py --model-name gpt-4 --examples 5
 ```
 
-Command line arguments:
-- `--model`: The OpenAI model to evaluate (default: gpt-3.5-turbo)
+### Using a Custom Runner
+
+You can evaluate any custom implementation by creating an executable that follows the input/output protocol:
+
+```bash
+# Using a custom implementation
+python browsecomp.py --runner-path /path/to/your/runner/executable --examples 5
+```
+
+### Command Line Arguments
+
+- `--runner-path`: Path to evaluation runner executable (default: model_runner.py)
+- `--model-name`: Model name to pass to the runner
 - `--examples`: Number of examples to evaluate (default: 10)
 
 The evaluation will generate an HTML report with the results in the current directory.
+
+## Creating a Custom Runner
+
+To create a custom runner, you need to create an executable (script or binary) that:
+
+1. Accepts a JSON input with a "prompt" field
+2. Returns a JSON output with a "response" field
+
+The model_runner.py script provided serves as a reference implementation. Your custom implementation must:
+
+1. Accept input either from a file specified with `--input` or from stdin
+2. Output results either to a file specified with `--output` or to stdout
+3. Follow the JSON format for input/output
 
 ## Understanding Results
 
 The evaluation will output:
 - Accuracy score (percentage of correctly answered questions)
 - Detailed metrics on correct and incorrect answers
-- HTML representation of results (if enabled)
+- HTML representation of results
 
 ## Implementation Details
 
