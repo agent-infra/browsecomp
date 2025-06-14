@@ -1,0 +1,6 @@
+openai==1.86.0
+pandas
+numpy
+jinja2
+tqdm
+requests
