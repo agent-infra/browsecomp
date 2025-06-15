@@ -4,3 +4,4 @@ numpy
 jinja2
 tqdm
 requests
+colorama

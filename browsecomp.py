@@ -5,8 +5,23 @@ BrowseComp evaluation command-line interface.
 
 import argparse
 import os
+import signal
+import sys
 
 from browsecomp_eval import run_browsecomp_eval
+
+
+def setup_signal_handlers():
+    """Setup signal handlers to ensure graceful shutdown on interruption."""
+    def signal_handler(sig, frame):
+        print("\n\nEvaluation interrupted! Interim results have been saved.")
+        print("You can resume later or check the *_in_progress.html report.")
+        sys.exit(0)
+    
+    # Register handler for interrupt signals
+    signal.signal(signal.SIGINT, signal_handler)
+    if hasattr(signal, 'SIGBREAK'):  # Windows-specific
+        signal.signal(signal.SIGBREAK, signal_handler)
 
 
 def main():
@@ -30,6 +45,9 @@ def main():
     parser.add_argument("--exclude", type=str, nargs="+", dest="exclude_keywords",
                        help="Keywords to exclude from evaluation (examples containing these keywords will be skipped)")
     args = parser.parse_args()
+
+    # Setup signal handlers to handle interruptions gracefully
+    setup_signal_handlers()
 
     # Check for mutually exclusive parameters
     if args.command and args.python_script != "model_runner.py":

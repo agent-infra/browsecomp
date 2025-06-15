@@ -1,11 +1,13 @@
 import re
 import random
+import time
 from typing import Dict, List, Optional
 
 import pandas
 
 from interface import SamplerBase, SingleEvalResult, EvalResult, Eval
 from utils import decrypt, aggregate_results, map_with_progress, jinja_env, HTML_JINJA
+from utils import print_colored_result, save_interim_report
 
 # BrowseComp evaluation implementation
 QUERY_TEMPLATE = """
@@ -127,15 +129,57 @@ class BrowseCompEval(Eval):
                 "is_incorrect": is_incorrect,
             })
 
-        # Run evaluation and collect results
-        results = map_with_progress(fn, self.examples)
+        # List to track processed results
+        processed_results = []
+        
+        # Generate the report filename for interim updates
+        model_id = getattr(sampler, 'model', 'default')
+        if hasattr(sampler, 'model_name') and sampler.model_name:
+            model_id = sampler.model_name
+        interim_report_filename = f"browsecomp_{model_id}_{len(self.examples)}_examples_in_progress.html"
+        
+        # Callback function for processing each result
+        def process_result(result, index, total):
+            # Add the result to our processed list
+            processed_results.append(result)
+            
+            # Calculate interim metrics
+            correct_count = sum(1 for r in processed_results if r.metrics["is_correct"])
+            accuracy = correct_count / len(processed_results)
+            interim_metrics = {
+                "is_correct": accuracy,
+                "is_incorrect": 1 - accuracy,
+                "examples_completed": len(processed_results),
+                "total_examples": total,
+            }
+            
+            # Print colored status
+            print_colored_result(result, index, total)
+            
+            # Save interim report
+            save_interim_report(
+                processed_results,
+                interim_report_filename,
+                metrics=interim_metrics,
+                score=accuracy
+            )
+            
+            # Optionally print summary stats periodically (e.g., every 5 examples)
+            if len(processed_results) % 5 == 0 or len(processed_results) == total:
+                print(f"\nINTERIM METRICS (after {len(processed_results)}/{total} examples)")
+                print(f"Current Accuracy: {accuracy:.3f}")
+                print(f"Interim report updated: {interim_report_filename}")
+                print("="*50)
 
-        # Aggregate metrics
+        # Run evaluation with callback for real-time processing
+        results = map_with_progress(fn, self.examples, callback=process_result)
+
+        # Aggregate metrics (final)
         aggregate_metrics = {
             "is_correct": sum(result.metrics["is_correct"] for result in results) / len(results),
             "is_incorrect": sum(result.metrics["is_incorrect"] for result in results) / len(results),
         }
-        print("AGGREGATE METRICS")
+        print("\nFINAL METRICS")
         print(aggregate_metrics)
         print("##################")
 
@@ -143,7 +187,7 @@ class BrowseCompEval(Eval):
             "accuracy": aggregate_metrics["is_correct"],
         }
 
-        print(f"Accuracy: {output_d['accuracy']:.3f}")
+        print(f"Final Accuracy: {output_d['accuracy']:.3f}")
 
         return aggregate_results(results)
 
@@ -215,18 +259,23 @@ def run_browsecomp_eval(
     )
 
     # Run evaluation
+    start_time = time.time()
+    print(f"Starting evaluation with {num_examples} examples...")
     result = eval(model)
+    end_time = time.time()
+    evaluation_time = end_time - start_time
 
-    # Generate report
+    # Generate final report
     report = make_report(result)
 
     # Create report filename
     model_id = model_name if model_name else "default"
     report_filename = f"browsecomp_{model_id}_{num_examples}_examples.html"
 
-    # Save report
+    # Save final report
     with open(report_filename, "w") as f:
         f.write(report)
 
-    print(f"Evaluation complete! Report saved to {report_filename}")
+    print(f"Evaluation complete in {evaluation_time:.2f} seconds!")
+    print(f"Final report saved to {report_filename}")
     return result
