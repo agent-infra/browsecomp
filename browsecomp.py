@@ -278,8 +278,19 @@ class ChatCompletionSampler(SamplerBase):
         system_message: str | None = "You are a helpful assistant.",
         temperature: float = 0.5,
         max_tokens: int = 1024,
+        api_key: str | None = None,
+        base_url: str | None = None,
     ):
-        self.client = OpenAI()
+
+        # Initialize OpenAI client with custom parameters if provided
+        if api_key or base_url:
+            self.client = OpenAI(
+                api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+                base_url=base_url
+            )
+        else:
+            self.client = OpenAI()
+        
         self.model = model
         self.system_message = system_message
         self.temperature = temperature
@@ -561,7 +572,16 @@ class BrowseCompEval(Eval):
 # Example usage
 
 
-def run_browsecomp_eval(runner_path="model_runner.py", model_name=None, num_examples=10, cli_format=None):
+
+def run_browsecomp_eval(
+    runner_path="model_runner.py", 
+    model_name=None, 
+    num_examples=10, 
+    cli_format=None,
+    grader_model_name="gpt-4",
+    grader_api_key=None,
+    grader_base_url=None
+):
     # Set up the model to evaluate - can be external process or OpenAI API
     if cli_format:
         # 1. CLI Command Mode (highest priority)
@@ -600,8 +620,14 @@ def run_browsecomp_eval(runner_path="model_runner.py", model_name=None, num_exam
         print(f"Using OpenAI API with model: {model_name}")
         model = ChatCompletionSampler(model=model_name)
 
-    # Set up grader model
-    grader_model = ChatCompletionSampler(model="gpt-4")
+
+
+    # Set up grader model with custom API parameters
+    grader_model = ChatCompletionSampler(
+        model=grader_model_name,
+        api_key=grader_api_key,
+        base_url=grader_base_url
+    )
 
     # Initialize evaluation
     eval = BrowseCompEval(grader_model=grader_model, num_examples=num_examples)
@@ -643,6 +669,13 @@ if __name__ == "__main__":
                         help="Model name to pass to runner")
     parser.add_argument("--examples", type=int, default=10,
                         help="Number of examples to evaluate")
+    # Add new arguments for grader model configuration
+    parser.add_argument("--grader-model-name", type=str, default="gpt-4",
+                        help="Model name to use for grading (default: gpt-4)")
+    parser.add_argument("--grader-api-key", type=str,
+                        help="API key to use for grader model")
+    parser.add_argument("--grader-base-url", type=str,
+                        help="Base URL to use for grader model API")
     args = parser.parse_args()
 
     # Check for mutually exclusive parameters
@@ -653,5 +686,9 @@ if __name__ == "__main__":
         runner_path=args.python_script,
         model_name=args.model_name,
         num_examples=args.examples,
-        cli_format=args.command
+
+        cli_format=args.command,
+        grader_model_name=args.grader_model_name,
+        grader_api_key=args.grader_api_key,
+        grader_base_url=args.grader_base_url
     )

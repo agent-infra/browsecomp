@@ -95,6 +95,9 @@ python browsecomp.py --command "your-cli-tool run" --model-name your-model-id --
 - `--command`: CLI command format string (e.g., "agent-tars run")
 - `--model-name`: Model name to pass to the runner (optional, required for certain configurations)
 - `--examples`: Number of examples to evaluate (default: 10)
+- `--grader-model-name`: Model name to use for grading (default: gpt-4)
+- `--grader-api-key`: Custom API key for grader model
+- `--grader-base-url`: Custom base URL for grader API endpoint
 
 **Note:** The `--python-script` and `--command` are mutually exclusive execution modes:
 - `--python-script`: Executes a Python script with your Python interpreter
@@ -138,4 +141,31 @@ The `browsecomp.py` implementation includes:
 - Encryption/decryption of test data for security
 - Template-based querying of language models
 - Automatic grading of responses using a grader model
+
 - Result aggregation and reporting
+- Command Line Arguments
+
+- `--python-script`: Path to Python script runner (default: model_runner.py)
+- `--command`: CLI command format string (e.g., "agent-tars run")
+- `--model-name`: Model name to pass to the runner (optional, required for certain configurations)
+- `--examples`: Number of examples to evaluate (default: 10)
+- `--grader-model-name`: Model name to use for grading (default: gpt-4)
+- `--grader-api-key`: Custom API key for grader model
+- `--grader-base-url`: Custom base URL for grader API endpoint
+
+**Note:** The `--python-script` and `--command` are mutually exclusive execution modes:
+- `--python-script`: Executes a Python script with your Python interpreter
+- `--command`: Executes a shell command directly, useful for compiled programs or complex CLI tools
+
+### Using Custom Grader API Endpoints
+
+If you're experiencing rate limits or need to use a different OpenAI API endpoint for grading:
+
+```bash
+python browsecomp.py --command "your-cli-tool run" --model-name your-model-id \
+  --grader-model-name gpt-4 \
+  --grader-api-key "your-api-key" \
+  --grader-base-url "https://your-custom-endpoint/v1"
+```
+
+This allows you to use alternative API endpoints or different API keys for the grader model.
