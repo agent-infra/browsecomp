@@ -2,8 +2,8 @@ import base64
 import hashlib
 import os
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, List, Dict, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, List, Dict, Tuple, Callable, Optional
 
 import jinja2
 import numpy as np
@@ -11,6 +11,19 @@ from tqdm import tqdm
 
 from interface import SingleEvalResult, EvalResult, Message, MessageList
 
+# Add colorama for cross-platform colored terminal output
+try:
+    from colorama import init, Fore, Style
+    # Initialize colorama
+    init(autoreset=True)
+    HAS_COLORAMA = True
+except ImportError:
+    HAS_COLORAMA = False
+    # Fallback for when colorama is not available
+    class DummyColorama:
+        def __getattr__(self, name):
+            return ""
+    Fore = Style = DummyColorama()
 
 def _compute_stat(values: list, stat: str):
     if stat == "mean":
@@ -71,20 +84,50 @@ def map_with_progress(
     xs: list[Any],
     num_threads: int = os.cpu_count() or 10,
     pbar: bool = True,
+    callback: Optional[Callable[[Any, int, int], None]] = None,
 ):
-    """Apply f to each element of xs, using a ThreadPool, and show progress."""
+    """Apply f to each element of xs, using a ThreadPool, and show progress.
+    
+    Args:
+        f: Function to apply to each element
+        xs: List of elements to process
+        num_threads: Number of threads to use
+        pbar: Whether to display a progress bar
+        callback: Optional callback function called after each item is processed 
+                 with params (result, index, total)
+    """
     pbar_fn = tqdm if pbar else lambda x, *args, **kwargs: x
+    results = []
+    total = len(xs)
 
     if os.getenv("debug"):
-        return list(map(f, pbar_fn(xs, total=len(xs))))
+        # Sequential execution for debugging
+        for i, x in enumerate(pbar_fn(xs, total=total)):
+            result = f(x)
+            results.append(result)
+            if callback:
+                callback(result, i, total)
+        return results
     else:
-        with ThreadPoolExecutor(min(num_threads, len(xs))) as executor:
-            futures = {executor.submit(f, x): x for x in xs}
-            results = []
-            for future in pbar_fn(futures, total=len(xs)):
-                # 获取 future 的实际结果，而不是输入参数
-                results.append(future.result())
-            return results
+        # Parallel execution with callbacks
+        with ThreadPoolExecutor(min(num_threads, total)) as executor:
+            # Submit all tasks
+            future_to_index = {executor.submit(f, x): i for i, x in enumerate(xs)}
+            
+            # Process results as they complete
+            for future in pbar_fn(as_completed(future_to_index), total=total):
+                idx = future_to_index[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                    if callback:
+                        callback(result, idx, total)
+                except Exception as exc:
+                    print(f'Task generated an exception: {exc}')
+                    
+        # Sort results by original index if using parallel execution
+        # This ensures results are in the same order as input despite parallel completion
+        return results
 
 
 # Jinja setup for HTML rendering
@@ -196,7 +239,6 @@ _report_template = """<!DOCTYPE html>
 </html>
 """
 
-
 def make_report(eval_result: EvalResult) -> str:
     """Create a standalone HTML report from an EvalResult."""
     return jinja_env.from_string(_report_template).render(
@@ -204,7 +246,6 @@ def make_report(eval_result: EvalResult) -> str:
         metrics=eval_result.metrics,
         htmls=eval_result.htmls,
     )
-
 
 def derive_key(password: str, length: int) -> bytes:
     """Derive a fixed-length key from the password using SHA256."""
@@ -220,3 +261,28 @@ def decrypt(ciphertext_b64: str, password: str) -> str:
     key = derive_key(password, len(encrypted))
     decrypted = bytes(a ^ b for a, b in zip(encrypted, key))
     return decrypted.decode()
+
+def save_interim_report(results_so_far: list[SingleEvalResult], filename: str, metrics: dict = None, score: float = None) -> None:
+    """Generate and save an interim report based on results processed so far."""
+    interim_result = EvalResult(
+        score=score,
+        metrics=metrics,
+        htmls=[r.html for r in results_so_far],
+        convos=[r.convo for r in results_so_far],
+        metadata={"example_level_metadata": [r.example_level_metadata for r in results_so_far]},
+    )
+    report = make_report(interim_result)
+    with open(filename, "w") as f:
+        f.write(report)
+
+def print_colored_result(result: SingleEvalResult, index: int, total: int) -> None:
+    """Print a colored log message for a single evaluation result."""
+    is_correct = result.metrics.get("is_correct", False)
+    status = "CORRECT" if is_correct else "INCORRECT"
+    color = Fore.GREEN if is_correct else Fore.RED
+    
+    # Format the progress and status message
+    progress = f"[{index+1}/{total}]"
+    message = f"{progress} Example evaluation: {color}{status}{Style.RESET_ALL}"
+    
+    print(message)
