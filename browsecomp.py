@@ -290,7 +290,7 @@ class ChatCompletionSampler(SamplerBase):
             )
         else:
             self.client = OpenAI()
-        
+
         self.model = model
         self.system_message = system_message
         self.temperature = temperature
@@ -486,15 +486,31 @@ def decrypt(ciphertext_b64: str, password: str) -> str:
 
 
 class BrowseCompEval(Eval):
-    def __init__(self, grader_model: SamplerBase, num_examples: int | None = None, n_repeats: int = 1):
+    def __init__(self, grader_model: SamplerBase, num_examples: int | None = None, n_repeats: int = 1, exclude_keywords: list[str] = None):
         df = pandas.read_csv(
             "https://openaipublic.blob.core.windows.net/simple-evals/browse_comp_test_set.csv"
         )
         examples = [row.to_dict() for _, row in df.iterrows()]
+
+        # Filter examples based on exclude_keywords if provided
+        if exclude_keywords:
+            filtered_examples = []
+            for example in examples:
+                # Decrypt problem to check if it contains exclude keywords
+                problem = decrypt(example.get("problem", ""),
+                                  example.get("canary", ""))
+                if not any(keyword.lower() in problem.lower() for keyword in exclude_keywords):
+                    filtered_examples.append(example)
+
+            print(
+                f"Excluded {len(examples) - len(filtered_examples)} examples containing keywords: {exclude_keywords}")
+            examples = filtered_examples
+
         if num_examples:
             assert n_repeats == 1, "n_repeats only supported when max_examples = None"
             rng = random.Random(0)
-            examples = rng.sample(examples, num_examples)
+            examples = rng.sample(examples, min(num_examples, len(examples)))
+
         self.examples = examples * n_repeats
         self.grader_model = grader_model
 
@@ -572,15 +588,15 @@ class BrowseCompEval(Eval):
 # Example usage
 
 
-
 def run_browsecomp_eval(
-    runner_path="model_runner.py", 
-    model_name=None, 
-    num_examples=10, 
+    runner_path="model_runner.py",
+    model_name=None,
+    num_examples=10,
     cli_format=None,
     grader_model_name="gpt-4",
     grader_api_key=None,
-    grader_base_url=None
+    grader_base_url=None,
+    exclude_keywords=None
 ):
     # Set up the model to evaluate - can be external process or OpenAI API
     if cli_format:
@@ -620,8 +636,6 @@ def run_browsecomp_eval(
         print(f"Using OpenAI API with model: {model_name}")
         model = ChatCompletionSampler(model=model_name)
 
-
-
     # Set up grader model with custom API parameters
     grader_model = ChatCompletionSampler(
         model=grader_model_name,
@@ -629,8 +643,12 @@ def run_browsecomp_eval(
         base_url=grader_base_url
     )
 
-    # Initialize evaluation
-    eval = BrowseCompEval(grader_model=grader_model, num_examples=num_examples)
+  # Initialize evaluation with exclude_keywords parameter
+    eval = BrowseCompEval(
+        grader_model=grader_model,
+        num_examples=num_examples,
+        exclude_keywords=exclude_keywords
+    )
 
     # Run evaluation
     result = eval(model)
@@ -676,6 +694,8 @@ if __name__ == "__main__":
                         help="API key to use for grader model")
     parser.add_argument("--grader-base-url", type=str,
                         help="Base URL to use for grader model API")
+    parser.add_argument("--exclude", type=str, nargs="+", dest="exclude_keywords",
+                        help="Keywords to exclude from evaluation (examples containing these keywords will be skipped)")
     args = parser.parse_args()
 
     # Check for mutually exclusive parameters
@@ -690,5 +710,6 @@ if __name__ == "__main__":
         cli_format=args.command,
         grader_model_name=args.grader_model_name,
         grader_api_key=args.grader_api_key,
-        grader_base_url=args.grader_base_url
+        grader_base_url=args.grader_base_url,
+        exclude_keywords=args.exclude_keywords
     )
